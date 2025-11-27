@@ -1,0 +1,101 @@
+state = {'window_open': False}
+
+        room = Room(T_target, T_inside, state['window_open'])   
+        thermostat = ANFISThermostat(n_rules=5, learning_rate=0.01, initial_heater_power=initial_heater_power)
+
+        # Show last 300 minutes (5 hours) on screen
+        max_len = 300 
+        x_data = np.arange(max_len)
+        
+        y_temp = [T_inside] * max_len
+        y_level = [initial_heater_power] * max_len
+        y_window = [0.0] * max_len
+        y_outside = [5.0] * max_len
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
+        plt.subplots_adjust(bottom=0.2)
+
+        # Graph 1: Temps
+        line_temp, = ax1.plot(x_data, y_temp, 'r-', lw=2, label='Inside Temperature')
+        line_outside, = ax1.plot(x_data, y_outside, 'c--', lw=1, label='Outside Temperature')
+        ax1.axhline(y=T_target, color='k', linestyle='--', label='Target Temperature(22°C)')
+        
+        ax1.set_ylim(0, 35)
+        ax1.set_ylabel("Temperature (°C)")
+        ax1.set_title("ANFIS Control (1 Frame = 1 Minute)")
+        ax1.legend(loc='upper left', ncol=3)
+
+        # Graph 2: Controls
+        line_level, = ax2.plot(x_data, y_level, 'g-', lw=2, label='Heater power (0-5)')
+        line_window, = ax2.plot(x_data, y_window, 'b-', lw=1, label='Window', alpha=0.5)
+
+        ax2.set_ylim(0, 6)
+        ax2.set_ylabel("Heater power (0-5)")
+        ax2.legend(loc='upper left')
+
+        status_text = ax1.text(0.02, 0.05, '', transform=ax1.transAxes)
+
+        # Simulation Time Tracker
+        global_sim_time_mins = 0
+
+        def update(frame):
+            nonlocal global_sim_time_mins
+            global_sim_time_mins += 1
+
+            # 1. Update Outside Temp (Sine wave for 24h cycle)
+            day_progress = (global_sim_time_mins % 1440) / 1440.0
+            current_T_outside = 5.0 + 5.0 * np.sin(2 * np.pi * day_progress)
+
+            # 2. Update Room Window
+            room.set_window(state['window_open'])
+            
+            # 3. Calculate Error
+            error = T_target - room.T_inside
+
+            # 4. ANFIS DECISION
+            if room.window_open:
+                heater_power = 0.0
+            else:
+                heater_power = thermostat.forward(error, current_T_outside)
+                heater_power = max(0.0, min(5.0, heater_power))
+                
+                thermostat.adapt(error)
+
+            # 5. PHYSICS UPDATE (1 Minute step)
+            new_T_inside = room.update_temperature(current_T_outside, heater_power)
+
+            # 6. LOGGING
+            y_temp.pop(0)
+            y_temp.append(new_T_inside)
+
+            y_outside.pop(0)
+            y_outside.append(current_T_outside)
+
+            y_level.pop(0)
+            y_level.append(heater_power)
+
+            y_window.pop(0)
+            y_window.append(0 if state['window_open'] else heater_power)
+
+            line_temp.set_ydata(y_temp)
+            line_outside.set_ydata(y_outside)
+            line_level.set_ydata(y_level)
+            line_window.set_ydata(y_window)
+
+            status_text.set_text(
+                f'Time: {global_sim_time_mins//60:02d}:{(global_sim_time_mins%60):02d} | '
+                f'In: {new_T_inside:.2f}°C | Out: {current_T_outside:.2f}°C | '
+                f'Heater: {heater_power:.2f}'
+            )
+            return line_temp, line_outside, line_level, line_window, status_text
+
+        def toggle_window(event):
+            state['window_open'] = not state['window_open']
+
+        ax_btn = plt.axes([0.4, 0.05, 0.2, 0.075])
+        btn = Button(ax_btn, 'Open/Close Window')
+        btn.on_clicked(toggle_window)
+        fig._btn_ref = btn 
+
+        anim = FuncAnimation(fig, update, interval=50, blit=False)
+        plt.show()
