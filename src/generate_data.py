@@ -67,6 +67,36 @@ def generate_outdoor_temps_30mins(min_temp=0, max_temp=15, peak_hour=15, noise=0
 
     return [round(float(t), 1) for t in temps]
 
+
+def parse_window_events(path):
+    window_events = []
+    with open(path, "r", encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if line:
+                    line = line.strip("[]")
+                    tuples_list = []
+                    for t in line.split("),"):
+                        t = t.strip(" ()")
+                        if t:
+                            numbers = tuple(int(x) for x in t.split(","))
+                            tuples_list.append(numbers)
+                    window_events.append(tuples_list)
+    return window_events
+
+
+def parse_outside_temperatures(path):
+    half_hourly_temps = []
+    with open(path, "r", encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if line:
+                    numbers = line.strip("[]").split(",")
+                    numbers = [float(num.strip()) for num in numbers]
+                    half_hourly_temps.append(numbers)
+
+    return half_hourly_temps
+
 if __name__ == "__main__":
 
     n_runs = 100
@@ -75,12 +105,12 @@ if __name__ == "__main__":
     output_path_window_events = ("../data/window_events.txt")
 
     with open(output_path_outside_temperatures, "w", encoding="utf-8") as file:
-        for _ in range(50):
+        for _ in range(n_runs):
             data = generate_outdoor_temps_30mins()
             file.write(str(data) + "\n")
 
     with open(output_path_window_events, "w", encoding="utf-8") as file:
-        for _ in range(50):
+        for _ in range(n_runs):
             data = generate_window_events()
             file.write(str(data) + "\n")
 
