@@ -32,7 +32,6 @@ def generate_window_events():
             if all(not (start < e and end > s) for s, e in used_ranges):
                 break
 
-        #label = f"Window opened ({duration}m)"
         event = (start, end)
 
         events.append(event)

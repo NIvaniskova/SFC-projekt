@@ -56,7 +56,6 @@ def plot_lr_comparison(learning_rates, df):
         subset = df[df["Learning_Rate"] == lr]
         plt.scatter(subset["RMSE"], subset["Chattering"], label=f"LR={lr}", alpha=0.6)
 
-    # Highlight the means with a big marker
     means = df.groupby("Learning_Rate")[["RMSE", "Chattering"]].mean()
     for lr in learning_rates:
         plt.scatter(means.loc[lr, "RMSE"], means.loc[lr, "Chattering"], 
@@ -93,14 +92,12 @@ def plot_heatmap_gridsearch(rmse_pivot, chat_pivot):
     plt.show()
 
 def print_results_gridsearch(df):
-    # 1. SETUP: (4 decimal places)
+
     pd.options.display.float_format = '{:.4f}'.format
 
-    # 2. CREATE TEXT TABLES (Pivot Tables)
     rmse_table = df.pivot(index='Rules', columns='Learning_Rate', values='RMSE')
     chat_table = df.pivot(index='Rules', columns='Learning_Rate', values='Chattering')
 
-    # 3. PRINT THE COMPARISON MATRICES
     print("\n" + "="*40)
     print(f"{'RMSE MATRIX (Accuracy)':^40}")
     print("="*40)
@@ -111,7 +108,6 @@ def print_results_gridsearch(df):
     print("="*40)
     print(chat_table)
 
-    # 4. PRINT THE "LEADERBOARD"
     top_results = df.sort_values(by="RMSE").head(3)
 
     print("\n" + "="*40)

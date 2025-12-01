@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 import argparse
-import ast
 
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Button
@@ -28,7 +27,6 @@ def anfis_static(half_hourly_temps, window_events, lr, n_rules, T_target, T_insi
     history_T_inside = []
     history_T_outside = []
     history_heater_power = []
-    total_energy_used = 0.0
 
     # SIMULATION
     #print("Starting simulation...")
@@ -50,18 +48,14 @@ def anfis_static(half_hourly_temps, window_events, lr, n_rules, T_target, T_insi
         error = T_target - room.T_inside
 
         # --- C. ANFIS Control ---
-        # Inputs: Error, T_outside
         if room.window_open:
             heater_power = heater_power_when_window_open
         else:
             heater_power = thermostat.forward(error, current_T_outside)
             heater_power = max(0, min(5, heater_power))
             # --- D. Learn ---
-            # Only in case window is closed, otherwise the system would go crazy
+            # Only in case window is closed
             thermostat.adapt(error)
-
-        # Log energy output for system performance review
-        total_energy_used += heater_power 
 
         # --- E. Actuate ---
         new_T_inside = room.update_temperature(current_T_outside, heater_power)
@@ -79,24 +73,24 @@ def anfis_static(half_hourly_temps, window_events, lr, n_rules, T_target, T_insi
     arr_actual = np.array(history_T_inside)
     arr_valve = np.array(history_heater_power)
 
-    # 1. RMSE (Overall Accuracy)
+    # 1. RMSE (Accuracy)
     rmse = np.sqrt(np.mean((arr_target - arr_actual)**2))
 
-    # 2. Valve Efficiency (Chattering)
-    # Standard deviation of the CHANGE in valve position
+    # 2. Valve Efficiency (Stability)
     valve_changes = np.diff(arr_valve)
     chattering = np.std(valve_changes)
 
-    # --- PLOT RESULTS ---
-    return history_time, history_T_inside, history_T_outside, history_heater_power, rmse, chattering, total_energy_used
+    return history_time, history_T_inside, history_T_outside, history_heater_power, rmse, chattering
 
 
 class InteractiveANFIS:
-    def __init__(self, outdoor_temps, T_target, T_start, anfis_model, room_model):
+    def __init__(self, outdoor_temps, T_target, T_inside, anfis_model, room_model, heater_power_when_window_open):
         self.outdoor_temps = outdoor_temps
         self.T_target = T_target
+        self.T_inside = T_inside
         self.thermostat = anfis_model
         self.room = room_model
+        self.heater_power_when_window_open = heater_power_when_window_open
         
         # Simulation State
         self.current_minute = 0
@@ -105,17 +99,16 @@ class InteractiveANFIS:
         self.history_Tin = []
         self.history_Tout = []
         self.history_power = []
-        self.history_window = [] # To visualize when it was open later
+        self.history_window = [] 
         
-        # Setup Plot
         self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(10, 8), sharex=False)
-        plt.subplots_adjust(bottom=0.2) # Make room for button
+        plt.subplots_adjust(bottom=0.2) 
         
         self.setup_plots()
         self.setup_interaction()
         
     def setup_plots(self):
-        # --- Axis 1: Temperatures ---
+        # Axis 1: Temperatures
         self.ax1.set_xlim(0, 24)
         self.ax1.set_ylim(0, 30)
         self.ax1.set_ylabel('Temperature (°C)')
@@ -133,7 +126,7 @@ class InteractiveANFIS:
         # Visual indicator for window
         self.window_text = self.ax1.text(12, 28, "", color='red', fontsize=12, fontweight='bold', ha='center')
         
-        # --- Axis 2: Heater ---
+        # Axis 2: Heater
         self.ax2.set_xlim(0, 24)
         self.ax2.set_ylim(0, 6)
         self.ax2.set_ylabel('Valve (0-5)')
@@ -170,7 +163,8 @@ class InteractiveANFIS:
         
         # A. Update Inputs
         idx = self.current_minute // 30
-        if idx >= len(self.outdoor_temps): idx = len(self.outdoor_temps) - 1
+        if idx >= len(self.outdoor_temps): 
+            idx = len(self.outdoor_temps) - 1
         current_T_outside = self.outdoor_temps[idx]
         
         # B. Set Window State in Room
@@ -181,25 +175,18 @@ class InteractiveANFIS:
         
         # D. ANFIS Control
         if self.room.window_open:
-            heater_power = 0.0 # Force OFF logic
-            # Visual feedback
-            self.window_text.set_text("⚠️ WINDOW OPEN ⚠️")
-            self.ax1.set_facecolor('#f2f2f2') # Grey out background slightly
+            heater_power = self.heater_power_when_window_open
+            self.ax1.set_facecolor('#f2f2f2') 
         else:
             heater_power = self.thermostat.forward(error, current_T_outside)
             heater_power = max(0, min(5, heater_power)) # Clip 0-5
             self.thermostat.adapt(error) # Learn only when closed
-            
-            # clear visual feedback
-            self.window_text.set_text("")
             self.ax1.set_facecolor('white')
 
         # E. Actuate
         new_T_inside = self.room.update_temperature(current_T_outside, heater_power)
         
-        # ---------------------------------------------------------
         # 2. LOGGING
-        # ---------------------------------------------------------
         time_hour = self.current_minute / 60.0
         self.history_time.append(time_hour)
         self.history_Tin.append(new_T_inside)
@@ -208,9 +195,7 @@ class InteractiveANFIS:
         
         self.current_minute += 1
         
-        # ---------------------------------------------------------
         # 3. UPDATE PLOT (Efficiently)
-        # ---------------------------------------------------------
         self.line_Tin.set_data(self.history_time, self.history_Tin)
         self.line_Tout.set_data(self.history_time, self.history_Tout)
         self.line_power.set_data(self.history_time, self.history_power)
@@ -229,7 +214,7 @@ def main(mode):
     initial_heater_power = 3.0 
     heater_power_when_window_open = 2.0
     lr = 0.01
-    n_rules = 5
+    n_rules = 3
 
     if mode == "test":
         
@@ -239,14 +224,12 @@ def main(mode):
         file_path_window_events = "../data/window_events.txt"
         window_events = parse_window_events(file_path_window_events)
             
-        # 1. DEFINE GRID
         rule_options = [3, 5, 7]
         lr_options = [0.001, 0.005, 0.010, 0.050] 
         results_grid = []
 
         print(f"Starting Grid Search ({len(rule_options) * len(lr_options)} combinations)...")
 
-        # 2. NESTED LOOPS
         for n_rules in rule_options:
             for lr in lr_options:
                 print(f"  Testing: Rules={n_rules}, LR={lr}")
@@ -295,30 +278,19 @@ def main(mode):
         half_hourly_temps = generate_outdoor_temps_30mins()
         window_events = generate_window_events()
 
-        lr = 0.01
-        n_rules = 5
-
-        history_time, history_T_inside, history_T_outside, history_heater_power, rmse, chattering, total_energy_used = anfis_static(half_hourly_temps, window_events, lr, n_rules, T_target, T_inside, initial_heater_power, heater_power_when_window_open)
-    
-        print(f"--- PERFORMANCE REPORT ---")
-        print(f"RMSE:              {rmse:.4f} °C")
-        print(f"Total Energy Used: {total_energy_used:.2f} units")
-        print(f"Valve Smoothness:  {chattering:.4f}")
-        print(f"--------------------------")
+        history_time, history_T_inside, history_T_outside, history_heater_power, rmse, chattering = anfis_static(
+            half_hourly_temps, window_events, lr, n_rules, T_target, T_inside, initial_heater_power, heater_power_when_window_open)
 
         plot_one_run_static(T_target, history_time, history_T_inside, history_T_outside, history_heater_power, window_events)
 
     elif mode == "dynamic":   
 
-        # 1. Prepare Data
-        half_hourly_temps = generate_outdoor_temps_30mins() # Your function
+        half_hourly_temps = generate_outdoor_temps_30mins() 
 
-        # 2. Initialize system
         room = Room(T_target, T_inside, False)
-        thermostat = ANFISThermostat(n_rules=5, learning_rate=0.01)
+        thermostat = ANFISThermostat(n_rules=n_rules, learning_rate=lr)
 
-        # 3. Launch App
-        app = InteractiveANFIS(half_hourly_temps, T_target, T_inside, thermostat, room)
+        app = InteractiveANFIS(half_hourly_temps, T_target, T_inside, thermostat, room, heater_power_when_window_open)
         app.start()
 
     else:

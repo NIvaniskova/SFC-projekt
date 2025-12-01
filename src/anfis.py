@@ -29,20 +29,8 @@ class Room:
         self.window_open = state
 
     def update_temperature(self, T_outside, heater_power):
-        """
-        Simulates one minute of thermodynamics.
-        power: 0-5 scale
-        outside_temp: Degrees Celsius
-        """
-        # Heat loss to outside
-        # if self.window_open:
-        #     self.insulation_loss = 0.2
-        # else:
-        #     self.insulation_loss = 0.1
         heat_loss = self.insulation_loss * (self.T_inside - T_outside)
-        # Heat gain from heater
         heat_gain = self.heater_efficiency * heater_power
-        # Update inside temperature
         self.T_inside += heat_gain - heat_loss
         return self.T_inside
     
@@ -51,19 +39,16 @@ class ANFISThermostat:
     def __init__(self, n_rules=5, learning_rate=0.01, initial_heater_power=3.0):
         self.n_rules = n_rules
         self.learning_rate = learning_rate
-        self.n_inputs = 2  # T_inside, T_outside
+        self.n_inputs = 2  
 
         # --- Initualize parameters ---
         # Membership function parameters: (n_inputs, n_rules, 2) for Gaussian MF (c, sigma)
-        # Rules need to cover range of Errors (-5 to 5) and Outside Temps (-10 to 20)
         self.mu = np.random.uniform(-5, 10, (self.n_rules, self.n_inputs))
         self.sigma = np.random.uniform(2, 10, (self.n_rules, self.n_inputs))
 
         # Consequent parameters: (n_rules, n_inputs + 1) for linear function (p0, p1, bias)
-        self.consequent = np.zeros((self.n_rules, self.n_inputs + 1))  # +1 for bias term
-        
-        # Initialize bias (c) to something non-zero so heater isn't off at start
-        self.consequent[:, 2] = initial_heater_power    # Shape: (3, n_rules)
+        self.consequent = np.zeros((self.n_rules, self.n_inputs + 1))  
+        self.consequent[:, 2] = initial_heater_power    # Shape: (n_rules, 3)
 
     def gaussian_mf(self, x, mu, sigma):
         return np.exp(-0.5 * ((x - mu) / sigma) ** 2)
@@ -73,13 +58,13 @@ class ANFISThermostat:
         self.x_input = np.array([error, T_outside])  # Shape: (2,)
 
         # --- Fuzzification ---
-        self.mu_values = self.gaussian_mf(self.n_inputs, self.mu, self.sigma)  # Shape: (n_inputs, n_rules)
+        self.mu_values = self.gaussian_mf(self.x_input, self.mu, self.sigma)  # Shape: (n_inputs, n_rules)
 
         # --- Rule Evaluation ---
         self.w = np.prod(self.mu_values, axis=1)  # Shape: (n_rules,)
 
         # --- Normalization ---
-        self.w_sum = np.sum(self.w) + 1e-6  # Avoid division by zero
+        self.w_sum = np.sum(self.w) + 1e-6  
         self.w_normalized = self.w / self.w_sum  # Shape: (n_rules,)
 
         # --- Linear Output ---
@@ -87,25 +72,29 @@ class ANFISThermostat:
         self.linear_output = np.dot((self.consequent), x_bias)  # Shape: (n_rules,)
 
         # --- Aggregation ---
-        raw_output = np.dot(self.w_normalized, self.linear_output)  # Scalar
-
-        # --- Activation Function (Clamp to 0-5) ---
-        heater_power = np.clip(raw_output, 0, 5)
+        raw_output = np.dot(self.w_normalized, self.linear_output)
+        heater_power = np.clip(raw_output, 0, 5)    # Clip to (0-5) that corresponds to heater valve levels
         return heater_power
     
 
     def adapt(self, system_error):
-        """
-        system_error = Target - Current_Temp
-        If error is positive (Too Cold), we raise weights to increase heating.
-        """
-         
-        x_bias = np.append(self.x_input, 1)  
+        
+        # Noise influence prevention - system reacts after some threshold value is crossed
+        if abs(system_error) < 0.1:
+            return 
+        
+        # Exploding gradients prevention - clip system error to prevent uncontrollable weights growing
+        learning_error = np.clip(system_error, -2.0, 2.0)
+ 
+        
+        x_bias = np.append(self.x_input, 1) # p0*Error + p1*T_outside + 1*bias
     
         for r in range(self.n_rules):
+            # Consequent update
             grad = self.w_normalized[r] * x_bias   
-            self.consequent[r] += self.learning_rate * system_error * grad  
+            self.consequent[r] += self.learning_rate * learning_error * grad  
 
-            if self.w[r] > 0.05:
-                diff = self.n_inputs - self.mu[r]   
+            # Membership functions update
+            if self.w[r] > 0.05:    # Rules with weak firing strengths are omitted
+                diff = self.x_input - self.mu[r]   
                 self.mu[r] += self.learning_rate * system_error * diff  
