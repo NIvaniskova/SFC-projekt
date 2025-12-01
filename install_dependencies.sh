@@ -1,15 +1,13 @@
 #!/bin/bash
 
-# Install python3 and venv
-sudo apt install python3
-sudo apt install python3-pip
-sudo apt install python3.12-venv
+# Install Python, pip, and venv
+sudo apt update
+sudo apt install -y python3 python3-pip python3-venv
 
-# Install and activate environment
+# Create and activate environment
 python3 -m venv ~/myenv
 source ~/myenv/bin/activate
 
 # Install dependencies
-pip3 install --upgrade pip
-pip3 install packaging
-pip3 install -r requirements.txt
+pip install --upgrade pip
+pip install -r requirements.txt
